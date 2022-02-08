@@ -1,0 +1,19 @@
+{
+    "editor.codeActionsOnSave": {"source.fixAll.eslint": true},
+    "[typescript]": {
+        "editor.detectIndentation": false,
+        "editor.autoIndent": "none",
+        "editor.insertSpaces": true,
+        "editor.tabSize": 4,
+        "editor.wordWrap": "wordWrapColumn",
+        "editor.wordWrapColumn": 120,
+        "files.trimTrailingWhitespace": true
+    },
+    "markdownlint.config": {
+        "MD033": {
+            "allowed_elements": [
+                "img"
+            ]
+        }
+    },
+}

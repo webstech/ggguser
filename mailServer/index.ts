@@ -175,7 +175,7 @@ function buildReply(parsed: ParsedMail): Mail.Options {
 function getHeader(headers: HeaderLines, key: string): string {
   for (const entry of headers) {
     if (entry.key === key) {
-      const value = entry.line.match(/<.*>/);
+      const value = entry.line.match(/: (.*)/);
       if (!value) {
          throw new Error(`Unexpected line: ${entry.line}`);
       }

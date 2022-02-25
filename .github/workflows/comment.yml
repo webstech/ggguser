@@ -1,11 +1,13 @@
 # toy time tests
-name: Build & run tests
+name: Process PR Comment
 
 on:
-  workflow_dispatch:
+  # for demo submit/preview need more setup
+  repository_dispatch:
+    types: [cc-command, allow-command, disallow-command]
 
 jobs:
-  build-test:
+  process-comment:
     runs-on: ubuntu-latest
     env:
       GIT_BASE: 2dc94da3744bfbbf145eca587a0f5ff480cc5867
@@ -35,7 +37,7 @@ jobs:
       with:
         repository: webstech/gitgitgadget
         path: gitgitgadget
-        # ref: dry-part-5
+        ref: poc
 
     # install gitgitgadget
     - name: gitgitgadget - Install packages
@@ -52,6 +54,7 @@ jobs:
       uses: actions/checkout@v2
       with:
         path: ggguser
+        token: ${{ secrets.RUNNER_TOKEN }}
 
     # install ggguser
     - name: ggguser - Install packages
@@ -69,13 +72,7 @@ jobs:
       with:
         repository: webstech/gggmonitored
         path: gggmonitored
-
-    # Check out email project
-    - name: gggmail - Checkout
-      uses: actions/checkout@v2
-      with:
-        repository: webstech/gggmail
-        path: gggmail
+        token: ${{ secrets.RUNNER_TOKEN }}
 
     #
     # Finished installs and builds
@@ -91,24 +88,13 @@ jobs:
       env:
         config: "./build/src/model.js"
 
-    # run test with config
-    - name: Test config file with jest
-      run: npm run test:config
-      working-directory: gitgitgadget
-      if: ${{ 1 == 0 }}
-
-    # check for emails
-    - name: git log for emails
-      run: git log
-      working-directory: gggmail
-
     # configure monitored repo
     - name: set monitored git config
       run: |
         git config --add gitgitgadget.smtpUser joe_user@example.com
         git config --add gitgitgadget.smtpHost localhost
         git config --add gitgitgadget.smtpPass secret
-        git config --add gitgitgadget.smtpOpts "{port: 1035, secure:true, tls: {rejectUnauthorized: false}}"
+        git config --add gitgitgadget.smtpOpts "{port: 1025, secure:true, tls: {rejectUnauthorized: false}}"
         git config --add gitgitgadget.publishRemote https://github.com/$GITGITGADGET_REPO_BASEOWNER/$GITGITGADGET_REPO_NAME
         git config --add gitgitgadget.loreGitDir ../gggmail
         git config --list --local
@@ -119,78 +105,24 @@ jobs:
         # APPTOKEN: ${{ secrets.GITGITGADGET_APPTOKEN }}
 
     # run innocuous misc-helper commands
-    - name: misc helper display options
+    - name: misc helper process comment
       run: |
-        git -C ../gggmonitored config --list --local
-        echo $GITGITGADGET_CONFIG
+        echo $GIT_CONFIG_PARAMETERS
+        echo node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-pr-comment $OWNER_ID $COMMENT_ID
+        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG get-gitgitgadget-options
+        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-pr-comment $OWNER_ID $COMMENT_ID
         node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG get-gitgitgadget-options
       working-directory: gitgitgadget
       env:
         GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
         GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
+        GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
+        GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
+        COMMENT_ID: ${{ github.event.client_payload.github.payload.comment.id }}
+        OWNER_ID: ${{ github.event.client_payload.github.payload.repository.owner.login }}
+        GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
+        GIT_CONFIG_PARAMETERS: "'gitgitgadget.${{ env.GITGITGADGET_REPO_OWNER }}.githubToken=${{ secrets.RUNNER_TOKEN }}'"
+
         # *********** Probably need to set this **********
         # GIT_CONFIG_PARAMETERS: 'gitgitgadget.${{ env.GITGITGADGET_REPO_BASEOWNER }}.githubtoken=${{ secrets.GITGITGADGET_APPTOKEN }}'
-      if: ${{ 1 == 0 }}
-
-    # start mail daemon? - not working
-    - name: Generate emails
-      uses: BerniWittmann/background-server-action@v1.0.4
-      with:
-         command: node ggguser/build/mailServer/sendTest.js --port 1025 --count=1, sleep 15
-         start: node ggguser/build/mailServer/index.js --mail=gggmail
-      if: ${{ 1 == 0 }}
-      # working-directory: ggguser
-
-    # generate emails
-    - name: Generate emails
-      run: |
-        node ggguser/build/mailServer/index.js --mail=gggmail &
-        sleep 2
-        node ggguser/build/mailServer/sendTest.js --port 1025 --count=1
-        sleep 15
-        kill %%
-      env:
-        GIT_AUTHOR_NAME: ${{ secrets.AUTHOR }}
-        GIT_AUTHOR_EMAIL: ${{ secrets.EMAIL }}
-        GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
-        GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
-      # working-directory: gggmail
-
-    # check for emails
-    - name: git log for emails
-      run: git log
-      working-directory: gggmail
-
-    - name: misc helper handle new emails
-      run: |
-        node build/script/misc-helper.js  -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-new-mails
-      working-directory: gitgitgadget
-      env:
-        GIT_AUTHOR_NAME: ${{ secrets.AUTHOR }}
-        GIT_AUTHOR_EMAIL: ${{ secrets.EMAIL }}
-        GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
-        GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
-
-    # configure monitored repo
-    - name: Display notes
-      run: |
-        git notes --ref=refs/notes/gitgitgadget
-        git notes --ref=refs/notes/gitgitgadget show c9e1e802556ac9927f852a7cd2e34c3d688126ed
-        git notes --ref=refs/notes/gitgitgadget show e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-      working-directory: gggmonitored
-      env:
-        GIT_AUTHOR_NAME: ${{ secrets.AUTHOR }}
-        GIT_AUTHOR_EMAIL: ${{ secrets.EMAIL }}
-        GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
-        GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
-
-    # *** not run *** run inocuous misc-helper commands
-    - name: set git config
-      run: |
-        node build/scripts/misc-helper-js -G ../gggmonitored -G ../ggguser get-gitgitgadget-options
-      working-directory: gitgitgadget
-      env:
-        GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
-        GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
-      if: ${{ 1 == 0 }}
-
+      # if: ${{ 1 == 0 }}

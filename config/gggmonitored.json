@@ -1,0 +1,55 @@
+{
+    "repo": {
+      "name": "gggmonitored",
+      "owner": "webstech",
+      "baseOwner": "webstech",
+      "owners": [
+        "webstech",
+        "galileo"
+      ],
+      "branches": [
+        "last"
+      ],
+      "closingBranches": [
+        "last",
+        "main"
+      ],
+      "trackingBranches": [
+        "last",
+        "main",
+        "dev"
+      ],
+      "maintainerBranch": "",
+      "host": "github.com"
+    },
+    "mailrepo": {
+      "name": "gggmail",
+      "owner": "webstech",
+      "branch": "main",
+      "host": "github.com"
+    },
+    "mail": {
+      "author": "gitter",
+      "sender": "GitGadget"
+    },
+    "app": {
+      "appID": 12836,
+      "installationID": 195971,
+      "name": "gitgitgadget",
+      "displayName": "BigScopes",
+      "altname": "gitgitgadget-git"
+    },
+    "lint": {
+      "maxCommitsIgnore": [],
+      "maxCommits": 30
+    },
+    "user": {
+      "allowUserAsLogin": false
+    },
+    "project": {
+      "to": "david@groundcontrol.com",
+      "branch": "upstream/master",
+      "cc": [],
+      "urlPrefix": "https://mailarchive.com/egit/"
+    }
+  }

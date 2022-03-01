@@ -1,11 +1,15 @@
 name: cc-command
 on:
   repository_dispatch:
-    types: [cc-command]
+    types: [xcc-command, xpull-event]
 jobs:
   example:
     runs-on: ubuntu-latest
     steps:
+      - name: Dump the client payload context
+        env:
+          PAYLOAD_CONTEXT: ${{ toJson(github.event.client_payload) }}
+        run: echo "$PAYLOAD_CONTEXT"
       - name: Add reaction
         uses: peter-evans/create-or-update-comment@v1
         with:
@@ -13,7 +17,3 @@ jobs:
           repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
           comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
           reaction-type: hooray
-      - name: Dump the client payload context
-        env:
-          PAYLOAD_CONTEXT: ${{ toJson(github.event.client_payload) }}
-        run: echo "$PAYLOAD_CONTEXT"

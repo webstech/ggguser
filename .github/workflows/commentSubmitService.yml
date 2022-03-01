@@ -1,0 +1,371 @@
+# toy time tests
+name: Process PR Comment
+
+on:
+  # for POC submit/preview need a mail server
+  repository_dispatch:
+    types: [submit-command, preview-command]
+
+jobs:
+  process-comment:
+    runs-on: ubuntu-latest
+    env:
+      GIT_BASE: 2dc94da3744bfbbf145eca587a0f5ff480cc5867
+      GIT_REF: 89bece5
+      GITGITGADGET_MAILREPO_NAME: "gggmail"
+      GITGITGADGET_MAILREPO_OWNER: "webstech"
+      GITGITGADGET_MAILREPO_HOST: "github.com"
+
+      GITGITGADGET_MAIL_AUTHOR: "gitter"
+      GITGITGADGET_CONFIG: "config.json"
+      # GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
+      # GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
+
+      GITGITGADGET_REPO_OWNER: "webstech"
+      GITGITGADGET_REPO_BASEOWNER: "webstech"
+      GITGITGADGET_REPO_NAME: "gggmonitored"
+      PR_NUMBER: ${{ github.event.client_payload.pr }}
+      PR_OWNER: ${{ github.event.client_payload.owner }}
+      PR_ACTION: ${{ github.event.client_payload.action }}
+
+      # Allow passthru from monitored project
+      # to support multiple users of same ggguser (as runner)
+      GIT_AUTHOR_NAME: ${{ secrets.AUTHOR }}
+      GIT_AUTHOR_EMAIL: ${{ secrets.EMAIL }}
+      GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
+      GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
+
+      # Set config vars (normally in the secrets?)
+      GITGITGADGET_SMTPUSER: "joe_user@example.com"
+      GITGITGADGET_SMTPHOST: "localhost"
+      GITGITGADGET_SMTPPASS: "secret"
+      GITGITGADGET_SMTPOPTS: "{port: 1025, secure:true, tls: {rejectUnauthorized: false}}"
+
+      # Should action be setting this?  Should secret include repo name to support
+      # multiple repos in one dispatch container repo?
+      # Alternate is ?  The private key won't work here so how should auth be handled
+      # for generating a temporary token?  Or are secrets acceptable?
+      GIT_CONFIG_PARAMETERS: "'gitgitgadget.webstech.githubToken=${{ secrets.RUNNER_TOKEN }}'"
+
+    # Service containers to run email server
+    # services:
+      # Label used to access the service container
+      # email:
+        # Docker Hub image
+        # image: timbru31/node-alpine-git:16
+        # image: node:16
+        #
+        # ports:
+          # Opens tcp port 1025 on the host and service container
+          # - 1025:1025
+        # volumes:
+          # - ./ggguser:./ggguser
+          # - ./gggmail:./gggmail
+        # options: -v ${{ github.workspace }}/gggmail:/gggmail  -v ${{ github.workspace }}/ggguser:/ggguser --name email
+
+    steps:
+    - name: Set config vars based on /command
+      if: ${{ endswith(github.event.action, 'command') }}
+      run: |
+        PR_NUMBER=${{ github.event.client_payload.github.event.number }}
+        REPO_OWNER=${{ github.event.client_payload.github.payload.repository.owner.login }}
+        REPO_NAME=${{ github.event.client_payload.github.payload.repository.name }}
+        REPO_BASEOWNER=${{ github.event.client_payload.pull_request.base.repo.owner.login }}
+        COMMENT_ID=${{ github.event.client_payload.github.payload.comment.id }}
+
+        echo "GITGITGADGET_REPO_OWNER=$REPO_OWNER" >> $GITHUB_ENV
+        echo "GITGITGADGET_REPO_BASEOWNER=$REPO_BASEOWNER" >> $GITHUB_ENV
+        echo "GITGITGADGET_REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+        echo "GITGITGADGET_PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+        echo "GITGITGADGET_ACTION=comment" >> $GITHUB_ENV
+        echo "GITGITGADGET_COMMENT_ID=$COMMENT_ID" >> $GITHUB_ENV
+
+    - name: Set config vars (normally in the secrets?)
+      run: |
+        echo "GITGITGADGET_PUBLISHREMOTE=https://github.com/$GITGITGADGET_REPO_BASEOWNER/$GITGITGADGET_REPO_NAME" >> $GITHUB_ENV
+        echo "GITGITGADGET_LOREGITDIR=./gggmail" >> $GITHUB_ENV
+        echo "GITGITGADGET_CONFIG_MODEL=./ggguser/config/$GITGITGADGET_REPO_NAME.json" >> $GITHUB_ENV
+        echo "GIT_CONFIG_PARAMETERS='gitgitgadget.$GITGITGADGET_REPO_OWNER.githubToken=$GGG_TOKEN'" >> $GITHUB_ENV
+      env:
+        GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
+
+    # install node
+    - name: Install node
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+        # cache: "npm"
+
+    # Check out repo under sub-directory so other repos can be checked out
+    # Check out gitgitgadget
+    - name: gitgitgadget - Checkout
+      uses: actions/checkout@v3
+      if: ${{ 1 == 0 }}
+      with:
+        repository: webstech/gitgitgadget
+        path: gitgitgadget
+        ref: poc
+
+    # install gitgitgadget
+    - name: gitgitgadget - Install packages
+      if: ${{ 1 == 0 }}
+      run: npm ci
+      working-directory: gitgitgadget
+
+    # build gitgitgadget
+    - name: gitgitgadget- Run build
+      if: ${{ 1 == 0 }}
+      run: npm run build
+      working-directory: gitgitgadget
+
+    # Check out ggguser
+    - name: ggguser - Checkout
+      uses: actions/checkout@v3
+      with:
+        path: ggguser
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+    # install ggguser
+    - name: ggguser - Install packages
+      if: ${{ 1 == 0 }}
+      run: npm ci
+      working-directory: ggguser
+
+    # build ggguser for mailServer
+    - name: ggguser - Run build
+      if: ${{ 1 == 0 }}
+      run: npm run build
+      working-directory: ggguser
+
+    # Check out ggg supported project
+    - name: gggmonitored - Checkout
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ env.GITGITGADGET_REPO_OWNER }}/${{ env.GITGITGADGET_REPO_NAME }}
+        # repository: webstech/gggmonitored
+        path: gggmonitored
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+    # Check out email project
+    - name: gggmail - Checkout
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ env.GITGITGADGET_MAILREPO_OWNER }}/${{ env.GITGITGADGET_MAILREPO_NAME }}
+        # repository: webstech/gggmail
+        path: gggmail
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+    #
+    # Finished installs and builds
+    #
+
+    - name: Start email service
+      uses: webstech/gggsmtp-server-docker/.github/actions/smtp-server-start@main
+      with:
+        token: ${{ secrets.RUNNER_TOKEN }}
+        mail: ${{ env.GITHUB_WORKSPACE }}/gggmail
+        file: 1
+        git-author: Git Going
+        git-email: gone@example.com
+
+    - name: Start email service
+      if: ${{ 1 == 0 }}
+      # see https://github.com/actions/runner/issues/241 for the shell workaround
+      shell: 'script -q -e -c "bash --noprofile --norc -eo pipefail {0}"'
+      run: |
+        docker run -idt --rm --name smtp -p 1025:1025 --user node -v $GITHUB_WORKSPACE/gggmail:/usr/src/app/mail -e MAILREPO=./mail webstech/alpine-git
+        sleep 2
+        docker exec -it -u root smtp chown -R node /usr/src/app/mail
+        docker ps -a
+        # docker exec ${{ job.services.email.id }} sh -c 'ls -l /'
+        # docker exec --privileged ${{ job.services.email.id }} sh -c 'chmod 777 /ggguser'
+        # docker exec --privileged ${{ job.services.email.id }} sh -c 'chmod 777 /gggmail'
+
+    - name: Dir status
+      if: ${{ 1 == 0 }}
+      run: |
+        ls -l .
+        ls -l ./gggmail/.git
+        #chmod 777 ./ggguser
+        #chmod 777 ./gggmail
+
+    - name: Restart email service
+      if: ${{ 1 == 0 }}
+      run: |
+        docker restart email
+        sleep 2
+        docker exec ${{ job.services.email.id }} sh -c 'node /ggguser/build/mailServer/index.js --mail=/gggmail'
+        sleep 2
+
+    # mail server was waiting for mail file to exist
+    - name: wait for mail server to start
+      if: ${{ 1 == 0 }}
+      run: sleep 2
+
+    # Generate a config with updates from the env
+    # Not usually needed if the project can be set up with all the config values known
+    - name: ggg gen config
+      uses: webstech/ggggen-config@main
+      with:
+        config: ${{ env.GITGITGADGET_CONFIG_MODEL }}
+        file: ${{ env.GITGITGADGET_CONFIG }}
+        format: "json"
+
+    - name: Display config file
+      if: ${{ 1 == 0 }}
+      run: |
+        cat $GITGITGADGET_CONFIG
+      # working-directory: ggguser
+      env:
+        config: "./build/src/model.js"
+
+    - name: ggg handler
+      uses: webstech/gitgitgadget-pr-action/.github/actions/pull-request@main
+      with:
+        # A repo scoped GitHub Personal Access Token.
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+        # An optional GitHub token to use for reactions.
+        # Default: ${{ github.token }}
+        reaction-token: ""
+
+        # Add reactions to comments containing commands.
+        # Default: true
+        reactions: ""
+
+        # The repository permission level required by the user to dispatch commands.
+        # Default: write
+        permission: ""
+
+        # The location of the repository.
+        repository-dir: "./gggmonitored"
+
+        # The location of the repository with gitgitgadget configuration information.
+        config-repository-dir: "./ggguser"
+
+        # The file of configuration information.
+        configuration-file: ""
+
+        # JSON configuration for commands.
+        config: ${{ env.GITGITGADGET_CONFIG }}
+
+        # JSON configuration from a file for commands.
+        config-from-file: ""
+
+        # Repository owner.
+        repo-owner: ${{ env.GITGITGADGET_REPO_OWNER }}
+
+        # Repository name.
+        repo-name: ${{ env.GITGITGADGET_REPO_NAME }}
+
+        # Repository pull target.
+        repo-baseowner: ${{ env.GITGITGADGET_REPO_BASEOWNER }}
+
+        # Pull request number.
+        pull-request-number: ${{ env.GITGITGADGET_PR_NUMBER }}
+
+        # Comment id for handling comments.
+        comment-id: ${{ env.GITGITGADGET_COMMENT_ID }}
+
+        # Value of 'push' or 'comment'
+        action: ${{ env.GITGITGADGET_ACTION }}
+
+    # configure monitored repo
+    - name: set monitored git config
+      if: ${{ 1 == 0 }}
+      run: |
+        git config --add gitgitgadget.smtpUser joe_user@example.com
+        git config --add gitgitgadget.smtpHost localhost
+        git config --add gitgitgadget.smtpPass secret
+        git config --add gitgitgadget.smtpOpts "{port: 1025, secure:true, tls: {rejectUnauthorized: false}}"
+        git config --add gitgitgadget.publishRemote https://github.com/$GITGITGADGET_REPO_BASEOWNER/$GITGITGADGET_REPO_NAME
+        git config --add gitgitgadget.loreGitDir ../gggmail
+        git config --list --local
+      working-directory: ggguser
+      env:
+        GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
+        GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
+        # APPTOKEN: ${{ secrets.GITGITGADGET_APPTOKEN }}
+
+    # run innocuous misc-helper commands
+    - name: misc helper process comment
+      if: ${{ 1 == 0 }}
+      run: |
+        node ../ggguser/build/mailServer/index.js --mail=../gggmail &
+        sleep 2
+        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-pr-comment $OWNER_ID $COMMENT_ID
+        sleep 15
+        kill %%
+      working-directory: gitgitgadget
+      env:
+        COMMENT_ID: ${{ github.event.client_payload.github.payload.comment.id }}
+        OWNER_ID: ${{ github.event.client_payload.github.payload.repository.owner.login }}
+        GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
+        GIT_CONFIG_PARAMETERS: "'gitgitgadget.${{ env.GITGITGADGET_REPO_OWNER }}.githubToken=${{ secrets.RUNNER_TOKEN }}'"
+
+    # see what happened inside the server
+    - name: display smtp server errors
+      if: ${{ always() }}
+      shell: 'script -q -e -c "bash --noprofile --norc -eo pipefail {0}"'
+      run: docker logs smtp
+
+    - name: Stop email service
+      uses: webstech/gggsmtp-server-docker/.github/actions/smtp-server-stop@main
+
+    - name: Stop email service
+      if: ${{ 1 == 0 }}
+      shell: 'script -q -e -c "bash --noprofile --norc -eo pipefail {0}"'
+      run: |
+        sleep 2
+        docker exec -it -u root smtp chmod -R 777 /usr/src/app/mail
+        docker ps -all
+        docker stop smtp
+
+    # check for emails
+    - name: git log for emails
+      run: |
+        ls -l .
+        ls -l ./.git
+        if (test -e ./.git/FETCH_HEAD) then cat ./.git/FETCH_HEAD; fi;
+        git branch
+        git log
+        git log -p -U9999 --reverse 80cb5f54834b6034be3b76dd5b66521c5310b8ac..HEAD
+      working-directory: gggmail
+
+    - name: ggg misc action handler
+      # uses: webstech/gitgitgadget-pr-action@main
+      uses: webstech/gitgitgadget-pr-action/.github/actions/misc-request@main
+      with:
+        # A repo scoped GitHub Personal Access Token.
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+        # The location of the repository.
+        repository-dir: "./gggmonitored"
+
+        # The location of the repository with gitgitgadget configuration information.
+        config-repository-dir: "./ggguser"
+
+        # JSON configuration for commands.
+        config: ${{ env.GITGITGADGET_CONFIG }}
+
+        # Repository owner.
+        repo-owner: ${{ env.GITGITGADGET_REPO_OWNER }}
+
+        # Repository name.
+        repo-name: ${{ env.GITGITGADGET_REPO_NAME }}
+
+        # Value of 'push' or 'comment'
+        action: handle-new-mails
+
+    - name: misc helper handle new emails
+      if: ${{ 1 == 0 }}
+      run: |
+        node build/script/misc-helper.js  -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-new-mails
+      working-directory: gitgitgadget
+      env:
+        GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
+        GIT_CONFIG_PARAMETERS: "'gitgitgadget.${{ env.GITGITGADGET_REPO_OWNER }}.githubToken=${{ secrets.RUNNER_TOKEN }}'"
+
+        # *********** Probably need to set this **********
+        # GIT_CONFIG_PARAMETERS: 'gitgitgadget.${{ env.GITGITGADGET_REPO_BASEOWNER }}.githubtoken=${{ secrets.GITGITGADGET_APPTOKEN }}'
+      # if: ${{ 1 == 0 }}

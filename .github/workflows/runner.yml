@@ -24,14 +24,15 @@ jobs:
     steps:
     # install node
     - name: Install node
-      uses: actions/setup-node@v1
+      uses: actions/setup-node@v3
       with:
         node-version: '16'
+        # cache: "npm"
 
     # Check out repo under sub-directory so other repos can be checked out
     # Check out gitgitgadget
     - name: gitgitgadget - Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         repository: webstech/gitgitgadget
         path: gitgitgadget
@@ -49,7 +50,7 @@ jobs:
 
     # Check out ggguser
     - name: ggguser - Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         path: ggguser
 
@@ -65,14 +66,14 @@ jobs:
 
     # Check out ggg supported project
     - name: gggmonitored - Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         repository: webstech/gggmonitored
         path: gggmonitored
 
     # Check out email project
     - name: gggmail - Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         repository: webstech/gggmail
         path: gggmail

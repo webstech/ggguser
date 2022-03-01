@@ -1,17 +1,15 @@
-# toy time tests
-name: Process PR Comment
+name: Process PR create and sync
 
 on:
-  # for POC submit/preview need a mail server
   repository_dispatch:
-    types: [xsubmit-command, xpreview-command]
+    types: [xpull-event]
 
 jobs:
   process-comment:
     runs-on: ubuntu-latest
     env:
-      GIT_BASE: 2dc94da3744bfbbf145eca587a0f5ff480cc5867
-      GIT_REF: 89bece5
+      # GIT_BASE: 2dc94da3744bfbbf145eca587a0f5ff480cc5867
+      # GIT_REF: 89bece5
       GITGITGADGET_REPO_OWNER: "webstech"
       GITGITGADGET_REPO_BASEOWNER: "webstech"
       GITGITGADGET_REPO_NAME: "gggmonitored"
@@ -22,12 +20,11 @@ jobs:
       GITGITGADGET_CONFIG: "../config.json"
       # GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
       # GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
-      PR_NUMBER: ${{ github.event.client_payload.pr }}
-      PR_OWNER: ${{ github.event.client_payload.owner }}
+      PR_NUMBER: ${{ github.event.client_payload.github.event.number }}
+      PR_OWNER: ${{ github.event.client_payload.github.repository_owner }}
       PR_ACTION: ${{ github.event.client_payload.action }}
 
     steps:
-    # install node
     - name: Install node
       uses: actions/setup-node@v3
       with:
@@ -35,7 +32,6 @@ jobs:
         # cache: "npm"
 
     # Check out repo under sub-directory so other repos can be checked out
-    # Check out gitgitgadget
     - name: gitgitgadget - Checkout
       uses: actions/checkout@v3
       with:
@@ -43,29 +39,24 @@ jobs:
         path: gitgitgadget
         ref: poc
 
-    # install gitgitgadget
     - name: gitgitgadget - Install packages
       run: npm ci
       working-directory: gitgitgadget
 
-    # build gitgitgadget
     - name: gitgitgadget- Run build
       run: npm run build
       working-directory: gitgitgadget
 
-    # Check out ggguser
     - name: ggguser - Checkout
       uses: actions/checkout@v3
       with:
         path: ggguser
         token: ${{ secrets.RUNNER_TOKEN }}
 
-    # install ggguser
     - name: ggguser - Install packages
       run: npm ci
       working-directory: ggguser
 
-    # build ggguser
     - name: ggguser - Run build
       run: npm run build
       working-directory: ggguser
@@ -76,14 +67,6 @@ jobs:
       with:
         repository: webstech/gggmonitored
         path: gggmonitored
-        token: ${{ secrets.RUNNER_TOKEN }}
-
-    # Check out email project
-    - name: gggmail - Checkout
-      uses: actions/checkout@v3
-      with:
-        repository: webstech/gggmail
-        path: gggmail
         token: ${{ secrets.RUNNER_TOKEN }}
 
     #
@@ -116,14 +99,10 @@ jobs:
         GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
         # APPTOKEN: ${{ secrets.GITGITGADGET_APPTOKEN }}
 
-    # run innocuous misc-helper commands
-    - name: misc helper process comment
+    # run check pull-request contents
+    - name: misc helper process pull request create/update
       run: |
-        node ../ggguser/build/mailServer/index.js --mail=../gggmail &
-        sleep 2
-        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-pr-comment $OWNER_ID $COMMENT_ID
-        sleep 15
-        kill %%
+        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-pr-push $PR_OWNER $PR_NUMBER
       working-directory: gitgitgadget
       env:
         GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
@@ -132,26 +111,6 @@ jobs:
         GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
         COMMENT_ID: ${{ github.event.client_payload.github.payload.comment.id }}
         OWNER_ID: ${{ github.event.client_payload.github.payload.repository.owner.login }}
-        GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
-        GIT_CONFIG_PARAMETERS: "'gitgitgadget.${{ env.GITGITGADGET_REPO_OWNER }}.githubToken=${{ secrets.RUNNER_TOKEN }}'"
-
-    # check for emails
-    - name: git log for emails
-      run: |
-        git branch
-        git log
-        git log -p -U9999 --reverse 80cb5f54834b6034be3b76dd5b66521c5310b8ac..HEAD
-      working-directory: gggmail
-
-    - name: misc helper handle new emails
-      run: |
-        node build/script/misc-helper.js  -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-new-mails
-      working-directory: gitgitgadget
-      env:
-        GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
-        GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
-        GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
-        GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
         GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
         GIT_CONFIG_PARAMETERS: "'gitgitgadget.${{ env.GITGITGADGET_REPO_OWNER }}.githubToken=${{ secrets.RUNNER_TOKEN }}'"
 

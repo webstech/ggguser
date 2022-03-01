@@ -1,76 +1,131 @@
-# toy time tests
-name: Process PR Comment
+name: Process PR comment, create or sync
 
 on:
-  # for demo submit/preview need more setup
   repository_dispatch:
-    types: [cc-command, allow-command, disallow-command]
+    types: [xcc-command, xallow-command, xdisallow-command, xpull-event]
+    # types: [cc-command, allow-command, disallow-command, pull-event]
+    # real world would include:
+    # types: [submit-command, preview-command]
 
 jobs:
   process-comment:
     runs-on: ubuntu-latest
     env:
-      GIT_BASE: 2dc94da3744bfbbf145eca587a0f5ff480cc5867
-      GIT_REF: 89bece5
-      GITGITGADGET_REPO_OWNER: "webstech"
-      GITGITGADGET_REPO_BASEOWNER: "webstech"
-      GITGITGADGET_REPO_NAME: "gggmonitored"
+      # values to update config
       GITGITGADGET_MAILREPO_NAME: "gggmail"
       GITGITGADGET_MAILREPO_OWNER: "webstech"
       GITGITGADGET_MAILREPO_HOST: "github.com"
+
+      # values to update config
       GITGITGADGET_MAIL_AUTHOR: "gitter"
+      #config location
       GITGITGADGET_CONFIG: "../config.json"
-      # GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
-      # GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
+      GITGITGADGET_CONFIG_MODEL: "./build/src/model.js"
+
+      # Allow passthru from monitored project
+      # to support multiple users of same ggguser (as runner)
+      GIT_AUTHOR_NAME: ${{ secrets.AUTHOR }}
+      GIT_AUTHOR_EMAIL: ${{ secrets.EMAIL }}
+      GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
+      GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
 
     steps:
-    # install node
-    - name: Install node
-      uses: actions/setup-node@v1
-      with:
-        node-version: '16'
+    - name: dump github context
+      env:
+        PAYLOAD_CONTEXT: ${{ toJson(github) }}
+      if: ${{ 1 == 1 }}
+      run: |
+        echo "$PAYLOAD_CONTEXT"
+        #echo "::error::hard stop"
+        #exit 1
 
-    # Check out repo under sub-directory so other repos can be checked out
-    # Check out gitgitgadget
+    - name: Set config vars based on event
+      if: ${{ endswith(github.event.action, 'event') }}
+      run: |
+        CHECK_ID=${{ github.event.client_payload.check_id }}
+        PR_NUMBER=${{ github.event.client_payload.github.event.number }}
+        REPO_OWNER=${{ github.event.client_payload.github.repository_owner }}
+        REPO_NAME=${{ github.event.client_payload.github.event.repository.name }}
+        REPO_BASEOWNER=${{ github.event.client_payload.github.event.pull_request.base.repo.owner.login }}
+        # ${{ github.event.client_payload.slash_command.mail-name }}d
+        GITGITGADGET_MAILREPO_NAME: ${{ github.event.client_payload.slash_command.args.named.mail-name }}
+
+        echo "CHECK_ID=$CHECK_ID" >> $GITHUB_ENV
+        echo "GITGITGADGET_REPO_OWNER=$REPO_OWNER" >> $GITHUB_ENV
+        echo "GITGITGADGET_REPO_BASEOWNER=$REPO_BASEOWNER" >> $GITHUB_ENV
+        echo "GITGITGADGET_REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+        echo "GITGITGADGET_COMMAND=handle-pr-push" >> $GITHUB_ENV
+        echo "GITGITGADGET_COMMAND_ARG2=$REPO_OWNER" >> $GITHUB_ENV
+        echo "GITGITGADGET_COMMAND_ARG3=$PR_NUMBER" >> $GITHUB_ENV
+
+    - name: Set config vars based on /command
+      if: ${{ endswith(github.event.action, 'command') }}
+      run: |
+        COMMENT_ID=${{ github.event.client_payload.github.payload.comment.id }}
+        REPO_OWNER=${{ github.event.client_payload.github.payload.repository.owner.login }}
+        REPO_NAME=${{ github.event.client_payload.github.payload.repository.name }}
+        REPO_BASEOWNER=${{ github.event.client_payload.pull_request.base.repo.owner.login }}
+
+        echo "GITGITGADGET_REPO_OWNER=$REPO_OWNER" >> $GITHUB_ENV
+        echo "GITGITGADGET_REPO_BASEOWNER=$REPO_BASEOWNER" >> $GITHUB_ENV
+        echo "GITGITGADGET_REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+        echo "GITGITGADGET_COMMAND=handle-pr-comment" >> $GITHUB_ENV
+        echo "GITGITGADGET_COMMAND_ARG2=$REPO_OWNER" >> $GITHUB_ENV
+        echo "GITGITGADGET_COMMAND_ARG3=$COMMENT_ID" >> $GITHUB_ENV
+
+    - uses: LouisBrunner/checks-action@v1.1.1
+      id: check_create
+      if: ${{ env.CHECK_ID }}
+      with:
+        # token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.RUNNER_TOKEN }}
+        id: ${{ env.CHECK_ID }}
+        status: in_progress
+
+    # Checkout gitgitgadget before node install to allow caching to work
     - name: gitgitgadget - Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         repository: webstech/gitgitgadget
         path: gitgitgadget
         ref: poc
 
-    # install gitgitgadget
+    # install node
+    - name: Install node
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+        cache: "npm"
+        cache-dependency-path: gitgitgadget/package-lock.json
+
+    # Check out repo under sub-directory so other repos can be checked out
     - name: gitgitgadget - Install packages
       run: npm ci
       working-directory: gitgitgadget
 
-    # build gitgitgadget
     - name: gitgitgadget- Run build
       run: npm run build
       working-directory: gitgitgadget
 
-    # Check out ggguser
     - name: ggguser - Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         path: ggguser
         token: ${{ secrets.RUNNER_TOKEN }}
 
-    # install ggguser
     - name: ggguser - Install packages
       run: npm ci
       working-directory: ggguser
 
-    # build ggguser
     - name: ggguser - Run build
       run: npm run build
       working-directory: ggguser
 
-    # Check out ggg supported project
     - name: gggmonitored - Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
-        repository: webstech/gggmonitored
+        repository: ${{ env.GITGITGADGET_REPO_OWNER }}/${{ env.GITGITGADGET_REPO_NAME }}
+        # repository: webstech/gggmonitored
         path: gggmonitored
         token: ${{ secrets.RUNNER_TOKEN }}
 
@@ -80,13 +135,20 @@ jobs:
 
     # Generate a config with updates from the env
     # Not usually needed if the project can be set up with all the config values known
+    - name: Download remote config
+      if: ${{ startswith(env.CONFIG_FILE, 'http') }}
+      run: |
+        CONFIG=/tmp/config
+        curl get ${{ env.CONFIG_FILE }} >> $CONFIG
+        echo "GITGITGADGET_CONFIG_MODEL=$CONFIG" >> $GITHUB_ENV
+
     - name: Generate config file
       run: |
         npm run genconfig -- -f json --file $GITGITGADGET_CONFIG
         cat $GITGITGADGET_CONFIG
       working-directory: ggguser
       env:
-        config: "./build/src/model.js"
+        config: ${{ env.GITGITGADGET_CONFIG_MODEL }}
 
     # configure monitored repo
     - name: set monitored git config
@@ -99,30 +161,27 @@ jobs:
         git config --add gitgitgadget.loreGitDir ../gggmail
         git config --list --local
       working-directory: ggguser
-      env:
-        GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
-        GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
-        # APPTOKEN: ${{ secrets.GITGITGADGET_APPTOKEN }}
 
-    # run innocuous misc-helper commands
+    # run triggered misc-helper command
     - name: misc helper process comment
       run: |
-        echo $GIT_CONFIG_PARAMETERS
-        echo node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-pr-comment $OWNER_ID $COMMENT_ID
-        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG get-gitgitgadget-options
-        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG handle-pr-comment $OWNER_ID $COMMENT_ID
-        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG get-gitgitgadget-options
+        # echo $GIT_CONFIG_PARAMETERS
+        echo node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG $GITGITGADGET_COMMAND $GITGITGADGET_COMMAND_ARG2 $GITGITGADGET_COMMAND_ARG3
+        # node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG get-gitgitgadget-options
+        node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG $GITGITGADGET_COMMAND $GITGITGADGET_COMMAND_ARG2 $GITGITGADGET_COMMAND_ARG3
+        # node build/script/misc-helper.js -g ../gggmonitored -G ../ggguser --config $GITGITGADGET_CONFIG get-gitgitgadget-options
       working-directory: gitgitgadget
       env:
-        GIT_AUTHOR_NAME: ${{ env.GITGITGADGET_MAIL_AUTHOR }}
-        GIT_AUTHOR_EMAIL: ${{ env.GITGITGADGET_MAIL_AUTHOR }}@fakehost.com
-        GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
-        GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
-        COMMENT_ID: ${{ github.event.client_payload.github.payload.comment.id }}
-        OWNER_ID: ${{ github.event.client_payload.github.payload.repository.owner.login }}
         GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
         GIT_CONFIG_PARAMETERS: "'gitgitgadget.${{ env.GITGITGADGET_REPO_OWNER }}.githubToken=${{ secrets.RUNNER_TOKEN }}'"
 
-        # *********** Probably need to set this **********
-        # GIT_CONFIG_PARAMETERS: 'gitgitgadget.${{ env.GITGITGADGET_REPO_BASEOWNER }}.githubtoken=${{ secrets.GITGITGADGET_APPTOKEN }}'
-      # if: ${{ 1 == 0 }}
+    - uses: LouisBrunner/checks-action@v1.1.1
+      id: check_complete
+      if: ${{ env.CHECK_ID && always() }}
+      with:
+        # token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.RUNNER_TOKEN }}
+        id: ${{ env.CHECK_ID }}
+        status: completed
+        conclusion: ${{ job.status }}
+

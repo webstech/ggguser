@@ -4,7 +4,7 @@ name: Process PR Comment
 on:
   # for POC submit/preview need a mail server
   repository_dispatch:
-    types: [submit-command, preview-command]
+    types: [xsubmit-command, xpreview-command]
 
 jobs:
   process-comment:
@@ -131,7 +131,7 @@ jobs:
       run: npm ci
       working-directory: ggguser
 
-    # build ggguser for mailServer
+    # build ggguser for mailServer0
     - name: ggguser - Run build
       if: ${{ 1 == 0 }}
       run: npm run build
@@ -160,6 +160,8 @@ jobs:
     #
 
     - name: Start email service
+      if: ${{ startswith(github.event.action, 'submit') }} || ${{ startswith(github.event.action, 'preview') }}
+      # if: ${{ endswith(github.event.action, 'command') }}
       uses: webstech/gggsmtp-server-docker/.github/actions/smtp-server-start@main
       with:
         token: ${{ secrets.RUNNER_TOKEN }}
@@ -310,6 +312,7 @@ jobs:
       run: docker logs smtp
 
     - name: Stop email service
+      if: ${{ startswith(github.event.action, 'submit') }} || ${{ startswith(github.event.action, 'preview') }}
       uses: webstech/gggsmtp-server-docker/.github/actions/smtp-server-stop@main
 
     - name: Stop email service

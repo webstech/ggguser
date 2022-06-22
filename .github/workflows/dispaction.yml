@@ -2,13 +2,14 @@ name: Process PR comment, create or sync
 
 on:
   repository_dispatch:
-    types: [cc-command, allow-command, disallow-command, pull-event]
+    types: [cc-command, allow-command, disallow-command, submit-command, preview-command, pull-event]
     # real world would include:
     # types: [submit-command, preview-command]
 
 jobs:
   process-pr-update-comment:
     runs-on: ubuntu-latest
+    concurrency: gitgitgadget_process
     env:
       # values to update config
       GITGITGADGET_MAILREPO_NAME: "gggmail"
@@ -44,7 +45,7 @@ jobs:
     - name: dump github context
       env:
         PAYLOAD_CONTEXT: ${{ toJson(github) }}
-      if: ${{ 1 == 1 }}
+      if: ${{ 1 == 0 }}
       run: |
         echo "$PAYLOAD_CONTEXT"
         #echo "::error::hard stop"
@@ -84,11 +85,18 @@ jobs:
         echo "GITGITGADGET_ACTION=comment" >> $GITHUB_ENV
         echo "GITGITGADGET_COMMENT_ID=$COMMENT_ID" >> $GITHUB_ENV
 
+    - name: Indicate if smtp server is needed
+      if: ${{ startswith(github.event.action, 'submit') || startswith(github.event.action, 'preview') }}
+      run: echo "RUN_SMTP=YES" >> $GITHUB_ENV
+
     - name: Set config vars (normally in the secrets?)
       run: |
         echo "GITGITGADGET_PUBLISHREMOTE=https://github.com/$GITGITGADGET_REPO_BASEOWNER/$GITGITGADGET_REPO_NAME" >> $GITHUB_ENV
-        echo "GITGITGADGET_LOREGITDIR=../gggmail" >> $GITHUB_ENV
+        echo "GITGITGADGET_LOREGITDIR=./gggmail" >> $GITHUB_ENV
         echo "GITGITGADGET_CONFIG_MODEL=./ggguser/config/$GITGITGADGET_REPO_NAME.json" >> $GITHUB_ENV
+        echo "GIT_CONFIG_PARAMETERS='gitgitgadget.$GITGITGADGET_REPO_OWNER.githubToken=$GGG_TOKEN'" >> $GITHUB_ENV
+      env:
+        GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
 
     - name: Mark Check underway
       uses: LouisBrunner/checks-action@v1.1.1
@@ -116,16 +124,7 @@ jobs:
         path: ggguser
         token: ${{ secrets.RUNNER_TOKEN }}
 
-    - name: ggguser - Install packages
-      run: npm ci
-      if: ${{ 1 == 0 }}
-      working-directory: ggguser
-
-    - name: ggguser - Run build
-      run: npm run build
-      if: ${{ 1 == 0 }}
-      working-directory: ggguser
-
+    # Check out ggg supported project
     - name: gggmonitored - Checkout
       uses: actions/checkout@v3
       with:
@@ -136,7 +135,7 @@ jobs:
 
     # Check out email project
     - name: gggmail - Checkout
-      if: ${{ startswith(github.event.action, 'submit') }} || ${{ startswith(github.event.action, 'preview') }}
+      if: ${{ ENV.RUN_SMTP }}
       uses: actions/checkout@v3
       with:
         repository: webstech/gggmail
@@ -146,6 +145,17 @@ jobs:
     #
     # Finished installs and builds
     #
+
+    - name: Start email service
+      if: ${{ ENV.RUN_SMTP }}
+      # if: ${{ endswith(github.event.action, 'command') }}
+      uses: webstech/gggsmtp-server-docker/.github/actions/smtp-server-start@main
+      with:
+        token: ${{ secrets.RUNNER_TOKEN }}
+        mail: ${{ env.GITHUB_WORKSPACE }}/gggmail
+        file: 1
+        git-author: Git Going
+        git-email: gone@example.com
 
     # Generate a config with updates from the env
     # Not usually needed if the project can be set up with all the config values known
@@ -163,7 +173,7 @@ jobs:
         file: ${{ env.GITGITGADGET_CONFIG }}
         format: "json"
 
-    - name: ggg handler
+    - name: ggg handler for pull requests and comments
       # uses: webstech/gitgitgadget-pr-action@main
       uses: webstech/gitgitgadget-pr-action/.github/actions/pull-request@main
       with:
@@ -214,6 +224,51 @@ jobs:
 
         # Value of 'push' or 'comment'
         action: ${{ env.GITGITGADGET_ACTION }}
+
+
+      # see what happened inside the server
+    - name: display smtp server errors
+      if: ${{ always() && ENV.RUN_SMTP }}
+      shell: 'script -q -e -c "bash --noprofile --norc -eo pipefail {0}"'
+      run: docker logs smtp
+
+    - name: Stop email service
+      if: ${{ ENV.RUN_SMTP }}
+      uses: webstech/gggsmtp-server-docker/.github/actions/smtp-server-stop@main
+
+    # check for emails
+    - name: git log for emails
+      if: ${{ ENV.RUN_SMTP }}
+      run: |
+        git log
+        # git log -p -U9999 --reverse 80cb5f54834b6034be3b76dd5b66521c5310b8ac..HEAD
+      working-directory: gggmail
+
+    - name: ggg misc action handler
+      if: ${{ ENV.RUN_SMTP }}
+      # uses: webstech/gitgitgadget-pr-action@main
+      uses: webstech/gitgitgadget-pr-action/.github/actions/misc-request@main
+      with:
+        # A repo scoped GitHub Personal Access Token.
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+        # The location of the repository.
+        repository-dir: "./gggmonitored"
+
+        # The location of the repository with gitgitgadget configuration information.
+        config-repository-dir: "./ggguser"
+
+        # JSON configuration for commands.
+        config: ${{ env.GITGITGADGET_CONFIG }}
+
+        # Repository owner.
+        repo-owner: ${{ env.GITGITGADGET_REPO_OWNER }}
+
+        # Repository name.
+        repo-name: ${{ env.GITGITGADGET_REPO_NAME }}
+
+        # Value of 'push' or 'comment'
+        action: handle-new-mails
 
     - name: Mark Check Complete
       uses: LouisBrunner/checks-action@v1.1.1

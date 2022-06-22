@@ -26,7 +26,9 @@
       "name": "gggmail",
       "owner": "webstech",
       "branch": "main",
-      "host": "github.com"
+      "host": "github.com",
+      "url": "https://github.com/webstech/gggmail",
+      "descriptiveName": "random email service"
     },
     "mail": {
       "author": "gitter",

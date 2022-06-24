@@ -126,12 +126,23 @@ jobs:
 
     # Check out ggg supported project
     - name: gggmonitored - Checkout
+      if: ${{ 1 == 0 }}
       uses: actions/checkout@v3
       with:
         repository: ${{ env.GITGITGADGET_REPO_OWNER }}/${{ env.GITGITGADGET_REPO_NAME }}
         # repository: webstech/gggmonitored
         path: gggmonitored
         token: ${{ secrets.RUNNER_TOKEN }}
+
+    # Set up ggg supported project as a fully partial clone
+    - name: gggmonitored - Checkout
+      if: ${{ 1 == 1 }}
+      run: |
+        mkdir gggmonitored && cd gggmonitored
+        git init --bare
+        git remote add origin https://github.com/${{ env.GITGITGADGET_REPO_OWNER }}/${{ env.GITGITGADGET_REPO_NAME }}
+        git config remote.origin.promisor true
+        git config remote.origin.partialCloneFilter blob:none
 
     # Check out email project
     - name: gggmail - Checkout

@@ -144,6 +144,24 @@ jobs:
         git config remote.origin.promisor true
         git config remote.origin.partialCloneFilter blob:none
 
+    - name: Set token
+      uses: actions/github-script@v6
+      id: set-token
+      if: ${{ 1 == 1 }}
+      env:
+        TOKEN: ${{ secrets.RUNNER_TOKEN }}
+      with:
+        github-token: ${{ secrets.RUNNER_TOKEN }}
+        script: |
+            const util = require('node:util');
+            const execFile = util.promisify(require('node:child_process').execFile);
+            const tokenConfigKey = "http.https://github.com/.extraheader";
+            const basicCredential = Buffer.from(`x-access-token:${process.env.TOKEN}`, 'utf8').toString('base64');
+            const tokenConfigValue = `AUTHORIZATION: basic ${basicCredential}`;
+            const { stdout, stderr } = await execFile('git', ["-C", './gggmonitored', 'config', tokenConfigKey, tokenConfigValue]);
+            console.log(stdout);
+            console.log(stderr);
+
     # Check out email project
     - name: gggmail - Checkout
       if: ${{ ENV.RUN_SMTP }}
@@ -253,6 +271,8 @@ jobs:
       run: |
         git log
         # git log -p -U9999 --reverse 80cb5f54834b6034be3b76dd5b66521c5310b8ac..HEAD
+        git config --list --local
+        cat ./.git/config
       working-directory: gggmail
 
     - name: ggg misc action handler

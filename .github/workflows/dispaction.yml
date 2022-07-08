@@ -271,8 +271,8 @@ jobs:
       run: |
         git log
         # git log -p -U9999 --reverse 80cb5f54834b6034be3b76dd5b66521c5310b8ac..HEAD
-        git config --list --local
-        cat ./.git/config
+        # git config --list --local
+        # cat ./.git/config
       working-directory: gggmail
 
     - name: ggg misc action handler

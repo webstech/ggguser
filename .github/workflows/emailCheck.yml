@@ -1,0 +1,192 @@
+name: Check emails for PRs
+
+# Scheduled job to check email archive repo for emails related to open PRs.
+# This can run in any repo using env vars to identify the email repo and
+# the monitored repo.
+
+# This could run in the repo being monitored.  In that case, the vars
+# would be adjusted to use the runtime context info.
+
+on:
+  schedule:
+    - cron: '* * * * *'
+    # - cron: '* * * 1 *'
+
+jobs:
+  process-emails:
+    runs-on: ubuntu-latest
+    concurrency: gitgitgadget_process
+    env:
+      # values to update config - these will be secrets
+      GITGITGADGET_MAILREPO_NAME: "gggmail"
+      GITGITGADGET_MAILREPO_OWNER: "webstech"
+      GITGITGADGET_MAILREPO_HOST: "github.com"
+
+      # values to update config
+      GITGITGADGET_MAIL_AUTHOR: "gitter"
+      #config location
+      GITGITGADGET_CONFIG: "config.json"
+      #GITGITGADGET_CONFIG_MODEL: "./ggguser/config/gggmonitored.json"
+
+      # Allow passthru from monitored project
+      # to support multiple users of same ggguser (as runner)
+      GIT_AUTHOR_NAME: ${{ secrets.AUTHOR }}
+      GIT_AUTHOR_EMAIL: ${{ secrets.EMAIL }}
+      GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
+      GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
+
+      # Set config vars (normally in the secrets?)
+      GITGITGADGET_SMTPUSER: "joe_user@example.com"
+      GITGITGADGET_SMTPHOST: "localhost"
+      GITGITGADGET_SMTPPASS: "secret"
+      GITGITGADGET_SMTPOPTS: "{port: 1025, secure:true, tls: {rejectUnauthorized: false}}"
+
+      # Should action be setting this?  Should secret include repo name to support
+      # multiple repos in one dispatch container repo?
+      # Alternate is ?  The private key won't work here so how should auth be handled
+      # for generating a temporary token?  Or are secrets acceptable?
+      GIT_CONFIG_PARAMETERS: "'gitgitgadget.webstech.githubToken=${{ secrets.RUNNER_TOKEN }}'"
+      # GITGITGADGET_REPO_OWNER: ${{ secrets.REPO_OWNER }}
+      # GITGITGADGET_REPO_BASEOWNER: ${{ secrets.REPO_BASEOWNER }}
+      # GITGITGADGET_REPO_NAME: ${{ secrets.REPO_NAME }}
+      GITGITGADGET_REPO_OWNER: webstech
+      GITGITGADGET_REPO_BASEOWNER: webstech
+      GITGITGADGET_REPO_NAME: gggmonitored
+
+    steps:
+    - name: Set config vars (normally in the secrets?)
+      run: |
+        echo "GITGITGADGET_PUBLISHREMOTE=https://github.com/$GITGITGADGET_REPO_BASEOWNER/$GITGITGADGET_REPO_NAME" >> $GITHUB_ENV
+        echo "GITGITGADGET_LOREGITDIR=./gggmail" >> $GITHUB_ENV
+        echo "GITGITGADGET_CONFIG_MODEL=./ggguser/config/$GITGITGADGET_REPO_NAME.json" >> $GITHUB_ENV
+        echo "GIT_CONFIG_PARAMETERS='gitgitgadget.$GITGITGADGET_REPO_OWNER.githubToken=$GGG_TOKEN'" >> $GITHUB_ENV
+      env:
+        GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
+
+    # install node
+    - name: Install node
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+        # cache: "npm"
+        # cache-dependency-path: gitgitgadget/package-lock.json
+
+    # required for configs
+    - name: ggguser - Checkout
+      uses: actions/checkout@v3
+      if: ${{ 1 == 1 }}
+      with:
+        path: ggguser
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+    # Check out ggg supported project
+    - name: gggmonitored - Checkout
+      if: ${{ 1 == 0 }}
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ env.GITGITGADGET_REPO_OWNER }}/${{ env.GITGITGADGET_REPO_NAME }}
+        path: gggmonitored
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+    # Set up ggg supported project as a fully partial clone
+    - name: gggmonitored - Checkout
+      if: ${{ 1 == 1 }}
+      run: |
+        mkdir gggmonitored && cd gggmonitored
+        git init --bare
+        git remote add origin https://github.com/${{ env.GITGITGADGET_REPO_OWNER }}/${{ env.GITGITGADGET_REPO_NAME }}
+        git config remote.origin.promisor true
+        git config remote.origin.partialCloneFilter blob:none
+
+    - name: Set token
+      uses: actions/github-script@v6
+      id: set-token
+      if: ${{ 1 == 1 }}
+      env:
+        TOKEN: ${{ secrets.RUNNER_TOKEN }}
+      with:
+        github-token: ${{ secrets.RUNNER_TOKEN }}
+        script: |
+            const util = require('node:util');
+            const execFile = util.promisify(require('node:child_process').execFile);
+            const tokenConfigKey = "http.https://github.com/.extraheader";
+            const basicCredential = Buffer.from(`x-access-token:${process.env.TOKEN}`, 'utf8').toString('base64');
+            const tokenConfigValue = `AUTHORIZATION: basic ${basicCredential}`;
+            const { stdout, stderr } = await execFile('git', ["-C", './gggmonitored', 'config', tokenConfigKey, tokenConfigValue]);
+            console.log(stdout);
+            console.log(stderr);
+
+    # Check out email project
+    - name: gggmail - Checkout
+      if: ${{ 1 == 0 }}
+      uses: actions/checkout@v3
+      with:
+        repository: webstech/gggmail
+        path: gggmail
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+    # Set up email project as a fully partial clone
+    - name: gggmail - Checkout
+      if: ${{ 1 == 1 }}
+      run: |
+        mkdir gggmail && cd gggmail
+        git init --bare
+        git remote add origin https://${{ env.GITGITGADGET_MAILREPO_HOST }}/${{ env.GITGITGADGET_MAILREPO_OWNER }}/${{ env.GITGITGADGET_MAILREPO_NAME }}
+        git config remote.origin.promisor true
+        git config remote.origin.partialCloneFilter blob:none
+        git config remote.origin.fetch +refs/heads/main:refs/heads/main
+        git fetch --depth=1
+
+    #
+    # Finished installs and builds
+    #
+
+    # Generate a config with updates from the env
+    # Not usually needed if the project can be set up with all the config values known
+    - name: Download remote config
+      if: ${{ startswith(env.CONFIG_FILE, 'http') }}
+      run: |
+        CONFIG=/tmp/config
+        curl get ${{ env.CONFIG_FILE }} >> $CONFIG
+        echo "GITGITGADGET_CONFIG_MODEL=$CONFIG" >> $GITHUB_ENV
+
+    - name: ggg gen config
+      uses: webstech/ggggen-config@main
+      with:
+        config: ${{ env.GITGITGADGET_CONFIG_MODEL }}
+        file: ${{ env.GITGITGADGET_CONFIG }}
+        format: "json"
+
+    # check for emails
+    - name: ggg misc action handler
+      if: ${{ 1 == 1 }}
+      # uses: webstech/gitgitgadget-pr-action@main
+      uses: webstech/gitgitgadget-pr-action/.github/actions/misc-request@main
+      with:
+        # A repo scoped GitHub Personal Access Token.
+        token: ${{ secrets.RUNNER_TOKEN }}
+
+        # The location of the repository.
+        repository-dir: "./gggmonitored"
+
+        # The location of the repository with gitgitgadget configuration information.
+        config-repository-dir: "./ggguser"
+
+        # JSON configuration for commands.
+        config: ${{ env.GITGITGADGET_CONFIG }}
+
+        # Repository owner.
+        repo-owner: ${{ env.GITGITGADGET_REPO_OWNER }}
+
+        # Repository name.
+        repo-name: ${{ env.GITGITGADGET_REPO_NAME }}
+
+        # Value of 'push' or 'comment'
+        action: handle-new-mails
+
+    # Push the notes back to the home office
+    - name: Update notes
+      if: ${{ 1 == 0 }}
+      working-directory: gggmonitored
+      run: |
+        git push $(git config gitgitgadget.publishremote) refs/notes/gitgitgadget

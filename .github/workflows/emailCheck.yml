@@ -97,6 +97,8 @@ jobs:
         git remote add origin https://github.com/${{ env.GITGITGADGET_REPO_OWNER }}/${{ env.GITGITGADGET_REPO_NAME }}
         git config remote.origin.promisor true
         git config remote.origin.partialCloneFilter blob:none
+        git config remote.origin.fetch +refs/heads/main:refs/heads/main
+        git fetch --depth=1
 
     - name: Set token
       uses: actions/github-script@v6

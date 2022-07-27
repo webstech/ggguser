@@ -17,13 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     concurrency: gitgitgadget_process
     env:
-      # values to update config - these will be secrets or already part of the config
+      # values to update git config - these will be secrets or already part of the config
       GITGITGADGET_MAILREPO_NAME: "gggmail"
       GITGITGADGET_MAILREPO_OWNER: "webstech"
       GITGITGADGET_MAILREPO_HOST: "github.com"
 
-      # values to update config
-      # not used in email check GITGITGADGET_MAIL_AUTHOR: "gitter"
       # config location
       GITGITGADGET_CONFIG: "config.json"
       #GITGITGADGET_CONFIG_MODEL: "./ggguser/config/gggmonitored.json"
@@ -34,37 +32,30 @@ jobs:
       GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
       GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
 
-      # NOT NEEDED FOR THIS WORKFLOW!
-      # Set config vars (normally in the secrets?)
-      # GITGITGADGET_SMTPUSER: "joe_user@example.com"
-      # GITGITGADGET_SMTPHOST: "localhost"
-      # GITGITGADGET_SMTPPASS: "secret"
-      # GITGITGADGET_SMTPOPTS: "{port: 1025, secure:true, tls: {rejectUnauthorized: false}}"
-
       # Should action be setting this?  Should secret include repo name to support
       # multiple repos in one dispatch container repo?
       # Alternate is ?  The private key won't work here so how should auth be handled
       # for generating a temporary token?  Or are secrets acceptable?
       # GIT_CONFIG_PARAMETERS: "'gitgitgadget.webstech.githubToken=${{ secrets.RUNNER_TOKEN }}'"
-      # GITGITGADGET_REPO_OWNER: ${{ secrets.REPO_OWNER }}
       # GITGITGADGET_REPO_BASEOWNER: ${{ secrets.REPO_BASEOWNER }}
+      # GITGITGADGET_REPO_OWNER: ${{ secrets.REPO_OWNER }}
       # GITGITGADGET_REPO_NAME: ${{ secrets.REPO_NAME }}
+      # GITGITGADGET_REPO_BASEOWNER: webstech
       GITGITGADGET_REPO_OWNER: webstech
-      GITGITGADGET_REPO_BASEOWNER: webstech
       GITGITGADGET_REPO_NAME: gggmonitored
+      GITGITGADGET_LOREGITDIR: ./gggmail
 
     steps:
     - name: Set config vars (normally in the secrets?)
       run: |
-        echo "GITGITGADGET_PUBLISHREMOTE=https://github.com/$GITGITGADGET_REPO_BASEOWNER/$GITGITGADGET_REPO_NAME" >> $GITHUB_ENV
-        echo "GITGITGADGET_LOREGITDIR=./gggmail" >> $GITHUB_ENV
+        # echo "GITGITGADGET_PUBLISHREMOTE=https://github.com/$GITGITGADGET_REPO_BASEOWNER/$GITGITGADGET_REPO_NAME" >> $GITHUB_ENV
+        # echo "GITGITGADGET_LOREGITDIR=./gggmail" >> $GITHUB_ENV
         echo "GITGITGADGET_CONFIG_MODEL=./ggguser/config/$GITGITGADGET_REPO_NAME.json" >> $GITHUB_ENV
         echo "GIT_CONFIG_PARAMETERS='gitgitgadget.$GITGITGADGET_REPO_OWNER.githubToken=$GGG_TOKEN'" >> $GITHUB_ENV
       env:
         GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
 
-    # install node
-    # is this needed?  Isn't node already installed as part of the standard runs-on?
+    # install node - only used if a version is required that is not part of the standard runs-on
     - name: Install node
       if: ${{ 1 == 0 }}
       uses: actions/setup-node@v3
@@ -105,7 +96,7 @@ jobs:
     # Set token for GitHub credentials
     - name: Set token
       uses: actions/github-script@v6
-      id: set-token
+      id: set-token-x
       if: ${{ 1 == 1 }}
       env:
         TOKEN: ${{ secrets.RUNNER_TOKEN }}
@@ -121,6 +112,15 @@ jobs:
             console.log(stdout);
             console.log(stderr);
 
+    # Set token for GitHub credentials
+    # oops resuse is a job level thing
+    - name: Set token 2
+      uses: webstech/ggguser/.github/workflows/setCredentials.yml@main
+      id: set-token
+      if: ${{ 1 == 0 }}
+      with:
+        token: ${{ secrets.RUNNER_TOKEN }}
+
     # Check out email project
     - name: gggmail - Checkout
       if: ${{ 1 == 0 }}
@@ -134,7 +134,8 @@ jobs:
     - name: gggmail - Checkout
       if: ${{ 1 == 1 }}
       run: |
-        mkdir gggmail && cd gggmail
+        # mkdir gggmail && cd gggmail
+        mkdir $GITGITGADGET_LOREGITDIR && cd $GITGITGADGET_LOREGITDIR
         git init --bare
         git remote add origin https://${{ env.GITGITGADGET_MAILREPO_HOST }}/${{ env.GITGITGADGET_MAILREPO_OWNER }}/${{ env.GITGITGADGET_MAILREPO_NAME }}
         git config remote.origin.promisor true
@@ -156,6 +157,7 @@ jobs:
         echo "GITGITGADGET_CONFIG_MODEL=$CONFIG" >> $GITHUB_ENV
 
     - name: ggg gen config
+      if: ${{ env.GITGITGADGET_CONFIG_MODEL }}
       uses: webstech/ggggen-config@main
       with:
         config: ${{ env.GITGITGADGET_CONFIG_MODEL }}

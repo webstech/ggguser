@@ -8,86 +8,84 @@ name: Check emails for PRs
 # would be adjusted to use the runtime context info.
 
 on:
-  schedule:
-    # - cron: '* * * * *'
-    - cron: '* * * 1 *'
+  workflow_call:
+    inputs:
+      repo-name:
+        required: true
+        type: string
+      repo-owner:
+        required: true
+        type: string
+      gitgitgadget-config:
+        required: false
+        type: string
+      gitgitgadget-config-model:
+        required: false
+        type: string
+      mail-repo-name:
+        required: true
+        type: string
+      mail-repo-owner:
+        required: true
+        type: string
+      mail-repo-host:
+        required: true
+        type: string
+    secrets:
+      token:
+        required: true
+      git-author-name:
+        required: true
+      git-author-email:
+        required: true
 
 jobs:
-  # reusable job to do the work
   process-emails:
-    concurrency: gitgitgadget_process
-    uses: webstech/ggguser/.github/workflows/doEmailCheck.yml@main
-    with:
-      repo-name: gggmonitored
-      repo-owner: webstech
-      # gitgitgadget-config:
-      gitgitgadget-config-model: ./ggguser/config/gggmonitored.json
-      mail-repo-name: gggmail
-      mail-repo-owner: webstech
-      mail-repo-host: github.com
-    secrets:
-      token: ${{ secrets.RUNNER_TOKEN }}
-      git-author-name: ${{ secrets.AUTHOR }}
-      git-author-email: ${{ secrets.EMAIL }}
-
-  process-emails-not-reuse:
-    if: ${{ 1 == 0 }}
     runs-on: ubuntu-latest
-    concurrency: gitgitgadget_process-x
     env:
-      # values to update mail repo git config - these will be secrets or already part of the config
-      GITGITGADGET_MAILREPO_NAME: "gggmail"
-      GITGITGADGET_MAILREPO_OWNER: "webstech"
-      GITGITGADGET_MAILREPO_HOST: "github.com"
-
       # config location
-      GITGITGADGET_CONFIG: "config.json"
-      #GITGITGADGET_CONFIG_MODEL: "./ggguser/config/gggmonitored.json"
+      GITGITGADGET_CONFIG: ${{ inputs.gitgitgadget-config }}
+      GITGITGADGET_CONFIG_MODEL: ${{ inputs.gitgitgadget-config-model }}
 
       # Set env vars used by git
-      GIT_AUTHOR_NAME: ${{ secrets.AUTHOR }}
-      GIT_AUTHOR_EMAIL: ${{ secrets.EMAIL }}
-      GIT_COMMITTER_NAME: ${{ secrets.AUTHOR }}
-      GIT_COMMITTER_EMAIL: ${{ secrets.EMAIL }}
+      GIT_AUTHOR_NAME: ${{ secrets.git-author-name }}
+      GIT_AUTHOR_EMAIL: ${{ secrets.git-author-email }}
+      GIT_COMMITTER_NAME: ${{ secrets.git-author-name }}
+      GIT_COMMITTER_EMAIL: ${{ secrets.git-author-email }}
 
-      # Should action be setting this?  Should secret include repo name to support
-      # multiple repos in one dispatch container repo?
-      # Alternate is ?  The private key won't work here so how should auth be handled
-      # for generating a temporary token?  Or are secrets acceptable?
-      # GIT_CONFIG_PARAMETERS: "'gitgitgadget.webstech.githubToken=${{ secrets.RUNNER_TOKEN }}'"
-      # GITGITGADGET_REPO_BASEOWNER: ${{ secrets.REPO_BASEOWNER }}
-      # GITGITGADGET_REPO_OWNER: ${{ secrets.REPO_OWNER }}
-      # GITGITGADGET_REPO_NAME: ${{ secrets.REPO_NAME }}
-      GITGITGADGET_REPO_BASEOWNER: webstech
-      GITGITGADGET_REPO_OWNER: webstech
-      GITGITGADGET_REPO_NAME: gggmonitored
+      GITGITGADGET_REPO_OWNER: ${{ inputs.repo-owner }}
+      GITGITGADGET_REPO_NAME: ${{ inputs.repo-name }}
+      GITGITGADGET_PUBLISHREMOTE: https://github.com/${{ inputs.repo-owner }}/${{ inputs.repo-name }}
+      GIT_CONFIG_PARAMETERS: '''gitgitgadget.${{ inputs.repo-owner }}.githubToken=${{ secrets.token }}'''
+
+      GITGITGADGET_MAILREPO_NAME: ${{ inputs.mail-repo-name }}
+      GITGITGADGET_MAILREPO_OWNER: ${{ inputs.mail-repo-owner }}
+      GITGITGADGET_MAILREPO_HOST: ${{ inputs.mail-repo-host }}
       GITGITGADGET_LOREGITDIR: ./gggmail
 
     steps:
-    - name: Set config vars (normally in the secrets?)
+    - name: Validate config is specified
+      if: ${{ !inputs.gitgitgadget-config && !inputs.gitgitgadget-config-model && (inputs.repo-owner != 'gitgitgadget') }}
       run: |
-        echo "GITGITGADGET_PUBLISHREMOTE=https://github.com/$GITGITGADGET_REPO_OWNER/$GITGITGADGET_REPO_NAME" >> $GITHUB_ENV
-        echo "GITGITGADGET_CONFIG_MODEL=./ggguser/config/$GITGITGADGET_REPO_NAME.json" >> $GITHUB_ENV
-        echo "GIT_CONFIG_PARAMETERS='gitgitgadget.$GITGITGADGET_REPO_OWNER.githubToken=$GGG_TOKEN'" >> $GITHUB_ENV
-      env:
-        GGG_TOKEN: ${{ secrets.RUNNER_TOKEN }}
+        echo "::error title='Input error'::Error - `gitgitgadget-config` or `gitgitgadget-config-model` must be specfified"
 
-    # install node - only used if a version is required that is not part of the standard runs-on
-    - name: Install node
-      if: ${{ 1 == 0 }}
-      uses: actions/setup-node@v3
-      with:
-        node-version: '16'
-        # cache: "npm"
-        # cache-dependency-path: gitgitgadget/package-lock.json
+    - name: Validate both config are not specified
+      if: ${{ inputs.gitgitgadget-config && inputs.gitgitgadget-config-model && (inputs.repo-owner != 'gitgitgadget') }}
+      run: |
+        echo "::warning title='Input warning'::Warning - `gitgitgadget-config` is ignored when `gitgitgadget-config-model` is specfified"
 
-    # required for configs
+    - name: Set temp name if config model is specified
+      if: ${{ inputs.gitgitgadget-config-model && (inputs.repo-owner != 'gitgitgadget') }}
+      run: |
+        echo "GITGITGADGET_CONFIG=/tmp/config" >> $GITHUB_ENV
+
+    # required for configs (only if it contains a config which is unlikely in the real world)
     - name: ggguser - Checkout
       uses: actions/checkout@v3
       if: ${{ 1 == 1 }}
       with:
         path: ggguser
-        token: ${{ secrets.RUNNER_TOKEN }}
+        token: ${{ secrets.token }}
 
     # Check out ggg supported project
     - name: gggmonitored - Checkout
@@ -96,7 +94,7 @@ jobs:
       with:
         repository: ${{ env.GITGITGADGET_REPO_OWNER }}/${{ env.GITGITGADGET_REPO_NAME }}
         path: gggmonitored
-        token: ${{ secrets.RUNNER_TOKEN }}
+        token: ${{ secrets.token }}
 
     # Set up ggg supported project as a fully partial clone
     - name: gggmonitored - Checkout
@@ -114,10 +112,11 @@ jobs:
     - name: Set token
       uses: actions/github-script@v6
       id: set-token
+      if: ${{ 1 == 1 }}
       env:
-        TOKEN: ${{ secrets.RUNNER_TOKEN }}
+        TOKEN: ${{ secrets.token }}
       with:
-        github-token: ${{ secrets.RUNNER_TOKEN }}
+        github-token: ${{ secrets.token }}
         script: |
             const util = require('node:util');
             const execFile = util.promisify(require('node:child_process').execFile);
@@ -148,19 +147,26 @@ jobs:
     # Generate a config with updates from the env
     # Not usually needed if the project can be set up with all the config values known
     - name: Download remote config
-      if: ${{ startswith(env.CONFIG_FILE, 'http') }}
+      if: ${{ startswith(env.GITGITGADGET_CONFIG, 'http') }}
       run: |
         CONFIG=/tmp/config
-        curl get ${{ env.CONFIG_FILE }} >> $CONFIG
+        curl get $GITGITGADGET_CONFIG >> $CONFIG
+        echo "GITGITGADGET_CONFIG=$CONFIG" >> $GITHUB_ENV
+
+    - name: Download remote config model
+      if: ${{ startswith(env.GITGITGADGET_CONFIG_MODEL, 'http') }}
+      run: |
+        CONFIG=/tmp/config-model
+        curl get $GITGITGADGET_CONFIG_MODEL >> $CONFIG
         echo "GITGITGADGET_CONFIG_MODEL=$CONFIG" >> $GITHUB_ENV
 
-    - name: ggg gen config
+    - name: ggg gen config from model
       if: ${{ env.GITGITGADGET_CONFIG_MODEL }}
       uses: webstech/ggggen-config@main
       with:
         config: ${{ env.GITGITGADGET_CONFIG_MODEL }}
         file: ${{ env.GITGITGADGET_CONFIG }}
-        format: "json"
+        format: json
 
     # check for emails
     - name: ggg misc action handler
@@ -169,24 +175,19 @@ jobs:
       uses: webstech/gitgitgadget-pr-action/.github/actions/misc-request@main
       with:
         # A repo scoped GitHub Personal Access Token.
-        token: ${{ secrets.RUNNER_TOKEN }}
+        token: ${{ secrets.token }}
 
         # The location of the repository.
-        repository-dir: "./gggmonitored"
+        repository-dir: ./gggmonitored
 
         # The location of the repository with gitgitgadget configuration information.
-        config-repository-dir: "./ggguser"
+        config-repository-dir: ./ggguser
 
         # JSON configuration for commands.
         config: ${{ env.GITGITGADGET_CONFIG }}
 
-        # Repository owner.
         repo-owner: ${{ env.GITGITGADGET_REPO_OWNER }}
-
-        # Repository name.
         repo-name: ${{ env.GITGITGADGET_REPO_NAME }}
-
-        # Value of 'push' or 'comment'
         action: handle-new-mails
 
     # Push the notes back to the home office
@@ -194,4 +195,4 @@ jobs:
       if: ${{ 1 == 0 }}
       working-directory: gggmonitored
       run: |
-        git push $(git config gitgitgadget.publishremote) refs/notes/gitgitgadget
+        git push $GITGITGADGET_PUBLISHREMOTE refs/notes/gitgitgadget
